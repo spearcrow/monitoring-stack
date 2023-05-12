@@ -1,0 +1,157 @@
+name: librenms
+
+services:
+  db:
+    image: mariadb:10.5
+    container_name: librenms_db
+    command:
+      - "mysqld"
+      - "--innodb-file-per-table=1"
+      - "--lower-case-table-names=0"
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+    volumes:
+      - "librenms_db:/var/lib/mysql"
+    environment:
+      - "TZ=${TZ}"
+      - "MYSQL_ALLOW_EMPTY_PASSWORD=yes"
+      - "MYSQL_DATABASE=${MYSQL_DATABASE}"
+      - "MYSQL_USER=${MYSQL_USER}"
+      - "MYSQL_PASSWORD=${MYSQL_PASSWORD}"
+    networks:
+      - "librenms"
+    restart: always
+
+  redis:
+    image: redis:5.0-alpine
+    container_name: librenms_redis
+    environment:
+      - "TZ=${TZ}"
+    networks:
+      - "librenms"
+    restart: always
+
+  influxdb:
+    image: influxdb:1.8-alpine
+    container_name: librenms_influxdb
+    hostname: librenms-influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - "librenms_influxdb:/var/lib/influxdb2"
+    env_file:
+      - "stack.env"
+    networks:
+      - "librenms"
+      - "monitoring"
+    restart: always
+
+  librenms:
+    image: librenms/librenms:latest
+    container_name: librenms
+    hostname: librenms
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    ports:
+      - target: 8000
+        published: 8080
+        protocol: tcp
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - "librenms_data:/data"
+    env_file:
+      - "stack.env"
+    environment:
+      - "TZ=${TZ}"
+      - "PUID=${PUID}"
+      - "PGID=${PGID}"
+      - "DB_HOST=db"
+      - "DB_NAME=${MYSQL_DATABASE}"
+      - "DB_USER=${MYSQL_USER}"
+      - "DB_PASSWORD=${MYSQL_PASSWORD}"
+      - "DB_TIMEOUT=60"
+    networks:
+      - librenms
+      - public
+      - monitoring
+
+    restart: always
+
+  dispatcher:
+    image: librenms/librenms:latest
+    container_name: librenms_dispatcher
+    hostname: librenms-dispatcher
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - librenms
+      - redis
+    volumes:
+      - "librenms_data:/data"
+    env_file:
+      - "stack.env"
+    environment:
+      - "TZ=${TZ}"
+      - "PUID=${PUID}"
+      - "PGID=${PGID}"
+      - "DB_HOST=db"
+      - "DB_NAME=${MYSQL_DATABASE}"
+      - "DB_USER=${MYSQL_USER}"
+      - "DB_PASSWORD=${MYSQL_PASSWORD}"
+      - "DB_TIMEOUT=60"
+      - "DISPATCHER_NODE_ID=dispatcher1"
+      - "SIDECAR_DISPATCHER=1"
+    networks:
+      - "librenms"
+    restart: always
+
+  snmptrapd:
+    image: librenms/librenms:latest
+    container_name: librenms_snmptrapd
+    hostname: librenms-snmptrapd
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      - librenms
+      - redis
+    ports:
+      - target: 162
+        published: 162
+        protocol: tcp
+      - target: 162
+        published: 162
+        protocol: udp
+    volumes:
+      - "librenms_data:/data"
+    env_file:
+      - "stack.env"
+    environment:
+      - "TZ=${TZ}"
+      - "PUID=${PUID}"
+      - "PGID=${PGID}"
+      - "DB_HOST=db"
+      - "DB_NAME=${MYSQL_DATABASE}"
+      - "DB_USER=${MYSQL_USER}"
+      - "DB_PASSWORD=${MYSQL_PASSWORD}"
+      - "DB_TIMEOUT=60"
+      - "SIDECAR_SNMPTRAPD=1"
+    networks:
+      - "librenms"
+    restart: always
+
+volumes:
+  librenms_data:
+  librenms_db:
+  librenms_influxdb:
+
+networks:
+  librenms:
+  monitoring:
+    external: true
+  public:
+    external: true
